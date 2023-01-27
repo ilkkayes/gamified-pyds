@@ -17,6 +17,8 @@ from pygame.locals import (
     QUIT
 )
 
+from collections import deque
+
 # Screen dimension variables for easier usage
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
@@ -83,47 +85,27 @@ def gen_terrain(width, height):
     looping = True
     while looping:
         # Randomize village and cave location on the terrain array
-        village_x = rnd.randint(0, width-1)
-        village_y = rnd.randint(0, height-1)
-        cave_x = rnd.randint(0, width-1)
-        cave_y = rnd.randint(0, height-1)
+        if village_set == 0:
+            village_x = rnd.randint(0, width-1)
+            village_y = rnd.randint(0, height-1)
+        if cave_set == 0:
+            cave_x = rnd.randint(0, width-1)
+            cave_y = rnd.randint(0, height-1)
 
         # Add village/cave to the terrain if the position is grass (for village) and mountain (for cave), and no village/cave has been added
-        if terrain[village_x][village_y] == 0 and village_set == 0:
-            terrain[village_x][village_y] = 3
+        if terrain[village_y][village_x] == 0 and village_set == 0:
+            terrain[village_y][village_x] = 3
             village_set = 1 
-        if terrain[cave_x][cave_y] == 2 and cave_set == 0:
-            terrain[cave_x][cave_y] = 4
+        if terrain[cave_y][cave_x] == 2 and cave_set == 0:
+            terrain[cave_y][cave_x] = 4
             cave_set = 1
         if village_set == 1 and cave_set == 1:
             looping = False
 
     # Return randomly generated terrain as NumPy array
-    return terrain
+    return terrain, village_x, village_y, cave_x, cave_y
 
-terrain = gen_terrain(20, 20)
-
-# Generate player character location randomly
-def gen_player_coord(terrain_arr):
-    # Player coordinates are in separate NumPy array with the same size as terrain array
-    player_coord_arr = np.zeros((np.shape(terrain_arr)[0], np.shape(terrain_arr)[1]), dtype=int)
-
-    # Loop until suitable player location has been generated
-    looping = True
-    while looping:
-        player_x = rnd.randint(0, np.shape(terrain_arr)[0]-1)
-        player_y = rnd.randint(0, np.shape(terrain_arr)[1]-1)
-        # Add player to generated location if the terrain tile is grass
-        if terrain_arr[player_x][player_y] == 0:
-            player_coord_arr[player_x][player_y] = 1
-            looping = False
-
-    # Stack terrain array and player location array so that both can be accessed within the same 3-dimensional array
-    terrain_player_arr = np.stack((terrain, player_coord_arr))
-
-    return terrain_player_arr
-
-terrain_player = gen_player_coord(terrain)
+terrain, village_x, village_y, cave_x, cave_y = gen_terrain(20, 20)
 
 # Initialize pygame
 pygame.init()
@@ -189,6 +171,34 @@ cave = Tiles('CSV/cave.png')
 # Initiate player class
 player = Player()
 
+# Generate player character location randomly
+def gen_player_coord(terrain_arr):
+    # Player coordinates are in separate NumPy array with the same size as terrain array
+    player_coord_arr = np.zeros((np.shape(terrain_arr)[0], np.shape(terrain_arr)[1]), dtype=int)
+
+    # Loop until suitable player location has been generated
+    looping = True
+    while looping:
+        player_x = rnd.randint(0, np.shape(terrain_arr)[0]-1)
+        player_y = rnd.randint(0, np.shape(terrain_arr)[1]-1)
+        # Add player to generated location if the terrain tile is grass
+        if terrain_arr[player_x][player_y] == 0:
+            player_coord_arr[player_x][player_y] = 1
+            looping = False
+
+    # Stack terrain array and player location array so that both can be accessed within the same 3-dimensional array
+    terrain_player_arr = np.stack((terrain, player_coord_arr))
+
+    for i in range(np.shape(player_coord_arr)[0]):
+        for j in range(np.shape(player_coord_arr)[1]):
+            if player_coord_arr[i][j] == 1: 
+                player.rect.x = j * 20
+                player.rect.y = i * 20
+
+    return terrain_player_arr
+
+terrain_player = gen_player_coord(terrain)
+
 # Iterate through all the elements of the terrain array, assign drawing coordinate in pixels (size of tile sprite * array coordinate), then draw the correct tile (based on array value of the terrain layout) to the land surface
 # Modified this step to be a custom function, so updating the terrain is easier later
 def draw_terrain(): 
@@ -230,6 +240,24 @@ def draw_player(terrain_player_arr):
 
 draw_player(terrain_player)
 
+def bfs(terrain, start, goal):
+    queue = deque([start])
+    visited = set()
+    visited.add(start)
+
+    while queue:
+        current_node = queue.popleft() if queue else None
+        if current_node == goal:
+            return True
+
+        neighbors = [(current_node[0], current_node[1]-1), (current_node[0]-1, current_node[1]), (current_node[0], current_node[1]+1), (current_node[0]+1, current_node[1])]
+        for i in neighbors:
+            if i[0] >= 0 and i[0] <= 19 and i[1] >= 0 and i[1] <= 19 and terrain[i[1]][i[0]] not in (1, 2) and i not in visited:
+                visited.add(i)
+                queue.append(i)
+
+    return False
+
 # Main loop
 running = True
 while running:
@@ -241,8 +269,13 @@ while running:
 
             # Generate new random terrain and blit it to land surface
             elif event.key == K_g:
-                terrain = gen_terrain(20, 20)
-                terrain_player = gen_player_coord(terrain)
+                nopaths = True
+                while nopaths:
+                    terrain, village_x, village_y, cave_x, cave_y = gen_terrain(20, 20)
+                    terrain_player = gen_player_coord(terrain)
+                    if bfs(terrain, (int(player.rect.x/20), int(player.rect.y/20)), (village_x, village_y)) == True and bfs(terrain, (int(player.rect.x/20), int(player.rect.y/20)), (cave_x, cave_y)) == True:
+                        nopaths = False
+
                 draw_terrain()
                 draw_player(terrain_player)
 
